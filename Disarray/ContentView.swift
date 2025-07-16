@@ -16,7 +16,8 @@ struct ContentView: View {
             ServerListView(servers: viewModel.servers, selectedServer: $viewModel.selectedServer)
         } content: {
             if let server = viewModel.selectedServer {
-                 ChannelListView(channels: viewModel.channels, selectedChannel: $viewModel.selectedChannel)
+                 // We now pass the viewModel into the ChannelListView
+                 ChannelListView(viewModel: viewModel, channels: viewModel.channels, selectedChannel: $viewModel.selectedChannel)
                     .navigationTitle(server.name)
             } else {
                 Text("Select a Server")
@@ -59,8 +60,12 @@ struct ServerListView: View {
 }
 
 struct ChannelListView: View {
+    @ObservedObject var viewModel: ChatViewModel // Needs the viewModel to call functions
     let channels: [Channel]
     @Binding var selectedChannel: Channel?
+    
+    @State private var showingAddChannelSheet = false
+    @State private var newChannelName = ""
 
     var body: some View {
         List(channels, selection: $selectedChannel) { channel in
@@ -70,8 +75,59 @@ struct ChannelListView: View {
             }
         }
         .navigationSplitViewColumnWidth(min: 200, ideal: 220)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button(action: { showingAddChannelSheet = true }) {
+                    Label("Add Channel", systemImage: "plus")
+                }
+            }
+        }
+        .sheet(isPresented: $showingAddChannelSheet) {
+            AddChannelView(isPresented: $showingAddChannelSheet, channelName: $newChannelName) {
+                if !newChannelName.isEmpty {
+                    viewModel.addChannel(named: newChannelName)
+                    newChannelName = "" // Reset for next time
+                }
+            }
+        }
     }
 }
+
+// A new view for the "Add Channel" input sheet
+struct AddChannelView: View {
+    @Binding var isPresented: Bool
+    @Binding var channelName: String
+    var onCreate: () -> Void
+
+    var body: some View {
+        VStack(spacing: 20) {
+            Text("Create New Channel")
+                .font(.headline)
+            
+            TextField("Channel Name", text: $channelName)
+                .textFieldStyle(RoundedBorderTextFieldStyle())
+            
+            HStack {
+                Button("Cancel") {
+                    isPresented = false
+                }
+                .keyboardShortcut(.cancelAction)
+                
+                Spacer()
+                
+                Button("Create") {
+                    onCreate()
+                    isPresented = false
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(channelName.isEmpty)
+            }
+        }
+        .padding()
+        .frame(minWidth: 300, idealWidth: 350)
+    }
+}
+
 
 struct ChatView: View {
     @ObservedObject var viewModel: ChatViewModel
@@ -80,13 +136,23 @@ struct ChatView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 12) {
-                    ForEach(viewModel.messages) { message in
-                        MessageRowView(message: message)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 12) {
+                        ForEach(viewModel.messages) { message in
+                            MessageRowView(message: message)
+                                .id(message.id)
+                        }
+                    }
+                    .padding()
+                }
+                .onChange(of: viewModel.messages) {
+                    if let lastMessage = viewModel.messages.last {
+                        withAnimation {
+                            proxy.scrollTo(lastMessage.id, anchor: .bottom)
+                        }
                     }
                 }
-                .padding()
             }
 
             HStack {
@@ -137,3 +203,4 @@ struct MessageRowView: View {
 #Preview {
     ContentView()
 }
+
